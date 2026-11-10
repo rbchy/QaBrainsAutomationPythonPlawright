@@ -31,8 +31,9 @@ class BaseTest:
 
     # The live practice site sometimes renders its React error screen
     # ("Oops! Something went wrong! caught by error boundary") instead of the page.
-    # Playwright checks this handler before every action and expect(); it reloads the
-    # same URL, at most 3 times per scenario, and logs each recovery so it stays visible.
+    # Playwright runs this handler before any action / expect() that meets the screen:
+    # it re-opens the same URL with a growing pause (up to 4 tries) and logs each
+    # recovery, so the site's instability stays visible in the CI log.
     recoveries = []
 
     @classmethod
@@ -40,12 +41,18 @@ class BaseTest:
         cls.recoveries = []
         crash = page.get_by_text("caught by error boundary")
 
-        def reload_page(_locator=None):
-            cls.recoveries.append(page.url)
-            print(f"⚠ site error boundary at {page.url}: reloading ({len(cls.recoveries)}/3)")
-            page.reload(wait_until="domcontentloaded")
+        def reopen(_locator=None):
+            url = page.url
+            for attempt in range(1, 5):
+                cls.recoveries.append(url)
+                print(f"⚠ site error boundary at {url}: re-opening (try {attempt}/4)")
+                page.wait_for_timeout(1500 * attempt)
+                page.goto(url, wait_until="load")
+                page.wait_for_timeout(1000)
+                if not crash.is_visible():
+                    return
 
-        page.add_locator_handler(crash, reload_page, times=3)
+        page.add_locator_handler(crash, reopen, times=3)
 
     @classmethod
     def get_page(cls) -> Page:
