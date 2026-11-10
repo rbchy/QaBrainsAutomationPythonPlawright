@@ -1,149 +1,42 @@
-import time
-from playwright.sync_api import Page
+"""Registration demo module (/registration)."""
+import re
+
+from playwright.sync_api import Page, expect
 
 
 class RegistrationPage:
-
     def __init__(self, page: Page):
         self.page = page
+        self.name = page.locator("#name")
+        self.country = page.locator("#country")
+        self.account = page.locator("#account")
+        self.email = page.locator("#email")
+        self.password = page.locator("#password")
+        self.confirm_password = page.locator("#confirm_password")
+        self.register_button = page.locator("form button[type='submit']")
 
-    def open_registration_page(self):
-        if 'registration' not in self.page.url:
-            # Try nav link
-            reg_link = self.page.locator(
-                "#registration span, a:has-text('Register'), a:has-text('Registration'), "
-                "a[href*='registration']"
-            ).first
-            try:
-                if reg_link.is_visible():
-                    reg_link.click()
-                    self.page.wait_for_timeout(1000)
-            except Exception:
-                pass
-            # Direct URL
-            if 'registration' not in self.page.url:
-                self.page.goto("https://practice.qabrains.com/registration")
-        self.page.wait_for_load_state()
-        self.page.wait_for_timeout(2000)
+    def open(self):
+        # the menu item ids are generated per page load, so the module is opened by URL
+        self.page.goto("/registration")
+        expect(self.name).to_be_visible()
 
-    def enter_registration_details(
-        self,
-        full_name: str,
-        country: str,
-        account_type: str,
-        email: str,
-        password: str,
-        confirm_password: str,
-    ):
-        # Use timestamp to make email unique every run
-        unique_email = f"testuser_{int(time.time())}@test.com"
-        print(f"ℹ️  Using unique email: {unique_email}")
+    def fill(self, name, country, account, email, password, confirm):
+        self.name.fill(name)
+        self.country.select_option(country)
+        self.account.select_option(account)
+        self.email.fill(email)
+        self.password.fill(password)
+        self.confirm_password.fill(confirm)
 
-        self._fill_if_exists("#name", full_name)
-        self._select_if_exists("#country", country)
-        self._select_if_exists("#account", account_type)
-        self._fill_if_exists("#email", unique_email)  # Always unique
-        self._fill_if_exists("#password", password)
-        self._fill_if_exists("#confirm_password", confirm_password)
+    def submit(self):
+        self.register_button.click()
 
-    def _fill_if_exists(self, selector: str, value: str):
-        try:
-            el = self.page.locator(selector).first
-            if el.is_visible():
-                el.fill(value)
-        except Exception as e:
-            print(f"⚠ Could not fill {selector}: {e}")
+    def expect_registered(self):
+        expect(self.page.get_by_text(re.compile("successfully", re.I)).first).to_be_visible()
 
-    def _select_if_exists(self, selector: str, value: str):
-        try:
-            el = self.page.locator(selector).first
-            if el.is_visible():
-                try:
-                    el.select_option(value)
-                except Exception:
-                    try:
-                        el.select_option(label=value)
-                    except Exception:
-                        # Try selecting first available option
-                        options = el.locator("option").all()
-                        if options:
-                            first_val = options[1].get_attribute("value") if len(options) > 1 else options[0].get_attribute("value")
-                            if first_val:
-                                el.select_option(first_val)
-                        print(f"⚠ Used fallback option for {selector}")
-        except Exception as e:
-            print(f"⚠ Could not select {selector}: {e}")
-
-    def click_register(self):
-        try:
-            btn = self.page.locator("button[type='submit']").first
-            btn.click()
-        except Exception:
-            pass
-        self.page.wait_for_load_state()
-        self.page.wait_for_timeout(2500)
-
-    def is_registration_successful(self) -> bool:
-        url = self.page.url
-
-        # Success selectors
-        success_selectors = [
-            "text=/successfully/i",
-            "text=/registered/i",
-            "text=/welcome/i",
-            "text=/thank you/i",
-            "text=/account created/i",
-            "text=/registration complete/i",
-            ".alert-success",
-            ".success-message",
-            "[class*='success']",
-            "#success-msg",
-        ]
-        for sel in success_selectors:
-            try:
-                el = self.page.locator(sel).first
-                if el.is_visible():
-                    print(f"✅ Registration success: {el.text_content().strip()}")
-                    return True
-            except Exception:
-                pass
-
-        # Redirected away from /registration = success
-        if 'registration' not in url:
-            print(f"✅ Registration success — redirected to: {url}")
-            return True
-
-        # Check body for success/already-exists keywords
-        try:
-            body = self.page.locator("body").inner_text().lower()
-            if any(k in body for k in ["success", "registered", "welcome", "already", "exists", "taken"]):
-                print("✅ Registration success keyword found in page")
-                return True
-            print(f"⚠ Registration page body (first 200 chars): {body[:200]}")
-        except Exception:
-            pass
-
-        return False
-
-    def is_email_validation_message_displayed(self) -> bool:
-        # HTML5 native validation
-        try:
-            msg = self.page.locator("#email").first.evaluate("el => el.validationMessage")
-            if msg:
-                print(f"✅ HTML5 email validation: {msg}")
-                return True
-        except Exception:
-            pass
-
-        # Inline error elements
-        for sel in ["#email + .error", "#email ~ .error", ".field-error",
-                    ".alert-danger", "[class*='error']", "text=/valid email/i",
-                    "text=/invalid email/i", "text=/enter a valid/i"]:
-            try:
-                if self.page.locator(sel).first.is_visible():
-                    return True
-            except Exception:
-                pass
-
-        # Still on registration page = validation blocked submit
-        return 'registration' in self.page.url
+    def expect_email_rejected(self):
+        """The browser blocks the submit and reports why on the field itself."""
+        state = self.email.evaluate("el => ({ valid: el.validity.valid, message: el.validationMessage })")
+        assert state["valid"] is False, f"e-mail field should be invalid, got {state}"
+        assert "@" in state["message"], f"validation message should mention '@': {state['message']!r}"
+        expect(self.page.get_by_text(re.compile("successfully", re.I))).to_have_count(0)

@@ -1,0 +1,89 @@
+# QA Brains — Python Playwright + Behave
+#   unit : pytest on the framework helpers (config reader, price pattern, tags)
+#   bdd  : all 15 Behave scenarios against practice.qabrains.com, headless,
+#          on Chromium and Firefox; JUnit XML, JSON and failure screenshots kept
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 6 * * 1"   # weekly: the live practice site can change
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit:
+    name: Unit tests (pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -v
+      - name: Every Gherkin step has a definition
+        run: python -m behave --dry-run --format progress --no-summary --strict 2>&1 | tee dry.txt; ! grep -q "undefined" dry.txt
+
+  bdd:
+    name: Behave scenarios (${{ matrix.browser }})
+    needs: unit
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox]
+    env:
+      HEADLESS: "true"
+      BROWSER: ${{ matrix.browser }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Install ${{ matrix.browser }}
+        run: python -m playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Run Behave
+        run: |
+          mkdir -p reports
+          python -m behave -f pretty -f json.pretty -o reports/behave.json
+
+      - name: Scenario summary
+        if: always()
+        run: |
+          python - <<'PY'
+          import json, os, pathlib
+          f = pathlib.Path("reports/behave.json")
+          if not f.exists():
+              raise SystemExit("no behave.json")
+          rows = ["| Feature | Scenarios | Passed | Failed |", "|---|---:|---:|---:|"]
+          tp = tf = 0
+          for feat in json.loads(f.read_text()):
+              sc = [e for e in feat.get("elements", []) if e.get("type") == "scenario"]
+              p = sum(1 for e in sc if e.get("status") == "passed")
+              rows.append(f"| {feat['name']} | {len(sc)} | {p} | {len(sc) - p} |")
+              tp += p; tf += len(sc) - p
+          rows.append(f"| **Total ({os.environ['BROWSER']})** | **{tp + tf}** | **{tp}** | **{tf}** |")
+          out = "\n".join(rows)
+          print(out)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as s:
+              s.write(out + "\n")
+          PY
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: behave-reports-${{ matrix.browser }}
+          path: reports/
+          if-no-files-found: ignore

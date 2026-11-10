@@ -1,42 +1,47 @@
-from playwright.sync_api import sync_playwright, Page, Browser, BrowserContext, Playwright
+"""A fresh browser, context and page for every scenario (started / closed in environment.py)."""
+from playwright.sync_api import sync_playwright, Page
+
+from utils.config_reader import ConfigReader
 
 
 class BaseTest:
-    """
-    Equivalent of Java's BaseTest.java
-    Manages a single static browser/page instance for all scenarios.
-    """
-    _playwright: Playwright = None
-    _browser: Browser = None
-    _context: BrowserContext = None
+    _playwright = None
+    _browser = None
+    _context = None
     _page: Page = None
 
     @classmethod
     def init_browser(cls):
-        """🚀 Start browser — called from environment.py before_scenario"""
         cls._playwright = sync_playwright().start()
-        cls._browser = cls._playwright.chromium.launch(headless=False)
-        cls._context = cls._browser.new_context()
+        name = ConfigReader.get("browser", "chromium").lower()
+        name = {"chrome": "chromium", "edge": "chromium"}.get(name, name)
+        launcher = getattr(cls._playwright, name)  # chromium | firefox | webkit
+        cls._browser = launcher.launch(headless=ConfigReader.get_bool("headless"))
+        cls._context = cls._browser.new_context(
+            base_url=ConfigReader.get("url"),
+            viewport={
+                "width": ConfigReader.get_int("viewport_width", 1440),
+                "height": ConfigReader.get_int("viewport_height", 900),
+            },
+        )
         cls._page = cls._context.new_page()
-        cls._page.goto("https://practice.qabrains.com/")
+        cls._page.set_default_timeout(ConfigReader.get_int("timeout", 15000))
+        cls._page.goto(ConfigReader.get("url"))
 
     @classmethod
     def get_page(cls) -> Page:
-        """📌 Get current Page instance"""
+        if cls._page is None:
+            raise RuntimeError("Page is not ready: init_browser() runs in before_scenario")
         return cls._page
 
     @classmethod
     def quit_browser(cls):
-        """❌ Close browser — called from environment.py after_scenario"""
-        if cls._page:
-            cls._page.close()
-            cls._page = None
-        if cls._context:
-            cls._context.close()
-            cls._context = None
-        if cls._browser:
-            cls._browser.close()
-            cls._browser = None
+        for closer in (cls._context, cls._browser):
+            try:
+                if closer:
+                    closer.close()
+            except Exception:
+                pass
         if cls._playwright:
             cls._playwright.stop()
-            cls._playwright = None
+        cls._playwright = cls._browser = cls._context = cls._page = None

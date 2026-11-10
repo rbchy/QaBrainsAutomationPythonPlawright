@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+reports/
+allure-results/
+allure-report/
+run_output.txt
+*.pdf
+.DS_Store
+.idea/
+.vscode/
+.pytest_cache/
+.project
+.pydevproject
+.settings/
