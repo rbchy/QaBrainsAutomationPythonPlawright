@@ -112,6 +112,27 @@ xychart-beta
 
 > **Before:** the last local run (`run_output.txt`) had 11 passed and 4 errored, and several of the 11 could not fail (see the Maintenance Log). **Now** every step asserts something concrete. The first CI run caught a real cross-browser difference: Firefox words the invalid-e-mail message differently from Chromium.
 
+### 🌩️ When the live site itself breaks
+
+practice.qabrains.com sometimes renders its own React error screen (*"Oops! Something went wrong! caught by error boundary"*) instead of the page. CI caught it on the home page and right after logout, on both browsers. The framework handles this openly:
+
+1. **Re-open:** a Playwright locator handler sees the error screen before any action or `expect()` and re-opens the same URL, up to 4 times with a growing pause.
+2. **One retry:** if the scenario still fails **and** the error screen was involved, it runs once more. A normal assertion failure is **never** retried.
+3. **Logged:** every re-open and retry is printed (`⚠ site error boundary…`, `↻ RETRY…`) and counted at the end of the run.
+
+```mermaid
+flowchart LR
+    A[step runs] --> B{site error screen?}
+    B -- no --> C[assert as usual]
+    B -- yes --> D[re-open URL<br/>up to 4x, logged]
+    D --> C
+    C --> E{scenario failed?}
+    E -- no --> P([passed])
+    E -- yes --> F{error screen seen<br/>in this attempt?}
+    F -- no --> X([failed, no retry])
+    F -- yes --> G[run scenario once more, logged] --> H([final result])
+```
+
 ---
 
 ## 🏗️ Framework Architecture
@@ -292,6 +313,7 @@ QaBrainsAutomationPythonPlawright/
 | Browser | always headed, `config.properties` ignored, URL hard-coded in 3 places | one `BaseTest`, config + env overrides, `base_url` |
 | Duplicates | `BaseTest`, `DriverFactory` and `DriverHelper` all started browsers | one `BaseTest` |
 | Failure evidence | screenshot only | screenshot + URL + page text in the CI log |
+| Live-site crashes | not handled | error screen re-opened (≤ 4×) and a scenario retried once **only** if the crash caused the failure; all logged |
 | Repo | `allure-results/`, `reports/`, `run_output.txt`, a stray zip of the project (`zi12CsSI`) committed | removed; `.gitignore` |
 | CI | none | GitHub Actions: pytest, dry-run for undefined steps, 2-browser matrix, weekly run |
 
