@@ -36,7 +36,10 @@ class RegistrationPage:
 
     def expect_email_rejected(self):
         """The browser blocks the submit and reports why on the field itself."""
-        state = self.email.evaluate("el => ({ valid: el.validity.valid, message: el.validationMessage })")
+        state = self.email.evaluate(
+            "el => ({ valid: el.validity.valid, typeMismatch: el.validity.typeMismatch, message: el.validationMessage })"
+        )
         assert state["valid"] is False, f"e-mail field should be invalid, got {state}"
-        assert "@" in state["message"], f"validation message should mention '@': {state['message']!r}"
+        assert state["typeMismatch"] is True, f"browser should flag a type mismatch: {state}"
+        assert state["message"], "browser gave no validation message"
         expect(self.page.get_by_text(re.compile("successfully", re.I))).to_have_count(0)

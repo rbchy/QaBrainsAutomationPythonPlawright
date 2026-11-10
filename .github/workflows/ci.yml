@@ -56,7 +56,7 @@ jobs:
       - name: Run Behave
         run: |
           mkdir -p reports
-          python -m behave -f pretty -f json.pretty -o reports/behave.json
+          python -m behave -f json.pretty -o reports/behave.json -f pretty
 
       - name: Scenario summary
         if: always()

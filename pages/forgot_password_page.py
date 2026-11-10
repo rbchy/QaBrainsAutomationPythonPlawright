@@ -26,7 +26,16 @@ class ForgotPasswordPage:
         expect(self.success_message).to_contain_text(expected)
 
     def expect_validation_error(self, expected: str):
-        """A malformed e-mail is stopped by the browser before it is sent."""
-        message = self.email.evaluate("el => el.validationMessage")
-        assert expected in message, f"expected {expected!r} in the browser message {message!r}"
+        """A malformed e-mail is stopped by the browser before it is sent.
+        The state (typeMismatch) is the same in every browser; the wording is
+        Chromium's ("...is missing an '@'"), Firefox says "Please enter an email address."."""
+        state = self.email.evaluate(
+            "el => ({ typeMismatch: el.validity.typeMismatch, message: el.validationMessage })"
+        )
+        assert state["typeMismatch"] is True, f"browser should flag a type mismatch: {state}"
+        if self.page.context.browser.browser_type.name == "chromium":
+            assert expected in state["message"], f"expected {expected!r} in {state['message']!r}"
+        else:
+            assert state["message"], "browser gave no validation message"
         expect(self.page).not_to_have_url(re.compile(r"forgot=true"))
+        expect(self.success_message).to_have_count(0)
