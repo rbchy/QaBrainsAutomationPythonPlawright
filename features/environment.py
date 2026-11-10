@@ -22,6 +22,8 @@ def before_scenario(context, scenario):
 
 
 def after_scenario(context, scenario):
+    if BaseTest.recoveries:
+        print(f"⚠ {scenario.name}: site error screen recovered {len(BaseTest.recoveries)}x at {BaseTest.recoveries}")
     try:
         if scenario.status == "failed":
             page = BaseTest.get_page()

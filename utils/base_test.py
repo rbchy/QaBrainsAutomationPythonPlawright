@@ -26,7 +26,26 @@ class BaseTest:
         )
         cls._page = cls._context.new_page()
         cls._page.set_default_timeout(ConfigReader.get_int("timeout", 15000))
+        cls._install_error_boundary_recovery(cls._page)
         cls._page.goto(ConfigReader.get("url"))
+
+    # The live practice site sometimes renders its React error screen
+    # ("Oops! Something went wrong! caught by error boundary") instead of the page.
+    # Playwright checks this handler before every action and expect(); it reloads the
+    # same URL, at most 3 times per scenario, and logs each recovery so it stays visible.
+    recoveries = []
+
+    @classmethod
+    def _install_error_boundary_recovery(cls, page: Page):
+        cls.recoveries = []
+        crash = page.get_by_text("caught by error boundary")
+
+        def reload_page(_locator=None):
+            cls.recoveries.append(page.url)
+            print(f"⚠ site error boundary at {page.url}: reloading ({len(cls.recoveries)}/3)")
+            page.reload(wait_until="domcontentloaded")
+
+        page.add_locator_handler(crash, reload_page, times=3)
 
     @classmethod
     def get_page(cls) -> Page:
